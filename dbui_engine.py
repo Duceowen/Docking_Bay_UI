@@ -139,6 +139,8 @@ class LayoutEngine:
         self._place_job = None
         self._place_retries = 0
         self._reposition_bound = False
+        self._update_bound = set()
+        self._core_bound = set()
         self._started = False
         self._in_layout = False
         self._log = plugin_logger()
@@ -208,8 +210,40 @@ class LayoutEngine:
         button.grid(row=0, column=0, padx=(0, 8), pady=0, sticky="w")
 
         self._app_row = row
+        self._prealign_labels()
         self._schedule_start()
         return row
+
+    def _prealign_labels(self):
+        """Left-align the commander labels before EDMC shows the window.
+
+        EDMC grids the labels left-aligned and fills in their text just before
+        the first paint.  Aligning them here, while they are still empty, means
+        the first paint is already correct and nothing jumps sideways once the
+        layout engine starts.
+        """
+        host = self.host
+        if not self._alive(host):
+            return
+        try:
+            children = list(host.winfo_children())
+        except tk.TclError:
+            return
+        names = {}
+        for _key, _title, label_name, value_name in _PAIR_ROWS:
+            names[label_name] = ("label", "w")
+            names[value_name] = ("value", "w")
+        for child in children:
+            target = names.get(self._widget_name(child))
+            if target is None:
+                continue
+            kind, sticky = target
+            try:
+                if kind == "label":
+                    child.configure(anchor="w")
+                child.grid_configure(sticky=sticky, padx=_PADX, pady=1)
+            except tk.TclError:
+                pass
 
     def _schedule_start(self):
         """Scan and lay out once the main loop is running and all frames exist."""
@@ -338,8 +372,37 @@ class LayoutEngine:
             theme_mod.theme.apply(self.root)
         except Exception:
             self._log.exception("Docking Bay UI could not repaint the window")
-        self._restyle_chrome()
+        # Reset update widget tracking so we pick the new themed button
+        self._update_pick = None
+        self._place_retries = 0
+        # Simulate a full reload: rediscover blocks and rebuild layout
+        self._destroy_chrome()
+        self.discover()
         self.apply_layout(force=True)
+        self._restyle_chrome()
+        self._schedule_settle()
+        # Schedule additional re-places to catch late widget updates
+        self._schedule_theme_reflow()
+
+    def _schedule_theme_reflow(self):
+        """Schedule delayed re-places after a theme switch."""
+        root = self.root
+        if not self._alive(root):
+            return
+        # Use fewer, quicker retries for theme changes
+        for delay in (150, 350):
+            try:
+                root.after(delay, self._theme_reflow_place)
+            except tk.TclError:
+                return
+
+    def _theme_reflow_place(self):
+        """Re-place the button after a theme switch."""
+        if self._in_layout or not self._alive(self.host):
+            return
+        self._update_pick = None
+        self._place_retries = 0
+        self._place_own_row()
 
     def suspend_popup_fit(self, flag):
         """Pause popup fitting while a color chooser owns the pointer."""
@@ -391,8 +454,6 @@ class LayoutEngine:
                             bg=colors["eye"], fg=colors["text"],
                             activebackground=colors["border"], activeforeground=colors["text"],
                         )
-                    elif name == "hint":
-                        widget.configure(bg=colors["bar"], fg=colors["border"])
                     else:
                         widget.configure(bg=colors["bar"], fg=colors["text"])
                 except tk.TclError:
@@ -602,7 +663,6 @@ class LayoutEngine:
             self._log.exception("Docking Bay UI could not apply the layout")
         finally:
             self._in_layout = False
-        self._schedule_resort()
 
     def _apply_layout(self):
         host = self.host
@@ -622,63 +682,222 @@ class LayoutEngine:
         self._bottom_row = row
 
         self._place_own_row()
+        self._bind_update_reposition()
+        self._bind_core_alignment()
 
         self._hide_dividers()
         self._ensure_min_size()
+        # Force commander labels to align properly
+        self._fix_commander_alignment()
+
+    def _fix_commander_alignment(self):
+        """Keep the commander labels left-aligned with one value column.
+
+        EDMC's toggle_suit_row regrids the Suit row whenever it appears, which
+        can leave that row out of line until the next full layout.  Restore our
+        options whenever a core widget is regridded.
+        """
+        core = next((b for b in self.blocks if b.kind == "group"), None)
+        if core is None:
+            return
+        for label, value in self._iter_pairs(core):
+            for widget, is_label in ((label, True), (value, False)):
+                if widget is None or not self._alive(widget):
+                    continue
+                try:
+                    info = widget.grid_info()
+                except tk.TclError:
+                    continue
+                if not info:
+                    continue
+                try:
+                    if is_label:
+                        widget.configure(anchor="w")
+                    if (
+                        str(info.get("sticky")) == "w"
+                        and int(info.get("padx") or 0) == _PADX
+                        and int(info.get("pady") or 0) == 1
+                    ):
+                        continue
+                    widget.grid_configure(sticky="w", padx=_PADX, pady=1)
+                except (tk.TclError, TypeError, ValueError):
+                    pass
 
     def _place_own_row(self):
-        """Put the Edit layout button on the Update line, aligned left.
+        """Put the Edit button on the Update line, at the left.
 
-        Falls back to a row of its own only when Update is hidden or missing.
+        The button is an overlay, so it must be re-placed whenever the Update
+        row moves.  Plugin frames can shrink after startup (Salty does this
+        about six seconds in), which moves every row below them; the host frame
+        keeps its size, so it never sees a <Configure> for that.  The Update
+        widget itself does, which is why it is the one bound in
+        _bind_update_reposition.
         """
         frame = self._own_frame
         if frame is None or not self._alive(frame):
             return
-        self._forget(frame)
+
         try:
             background = self._theme_color("background")
             if background:
                 frame.configure(bg=background)
         except tk.TclError:
             pass
+
         host = self.host
+        if not self._alive(host):
+            return
         row = self._update_row
-        if row is None or not self._alive(host):
+        if row is None:
+            self._forget(frame)
             self._grid(frame, row=max(1, self._bottom_row), column=0, columnspan=2, sticky="ew")
             return
+
         try:
             host.update_idletasks()
             bx, by, _bw, bh = host.bbox(0, row)
-            fh = int(frame.winfo_reqheight())
         except Exception:
-            bx = None
-            bh = 0
-            fh = 0
-        if bx is None or int(bh) <= 0:
+            return
+        if int(bh) <= 0:
+            # Not measurable yet; try again once the row has a size.
             self._retry_place()
             return
-        offset = max(0, (int(bh) - fh) // 2)
+
+        height = int(frame.winfo_reqheight())
+        offset = max(0, (int(bh) - height) // 2)
+        x = int(bx) + _PADX
+        y = int(by) + offset
+        # Never let the button hang below its row or above the row's top.
+        if y > int(by) + int(bh) - height:
+            y = int(by) + int(bh) - height
+        if y < int(by):
+            y = int(by)
+
+        self._forget(frame)
         try:
-            frame.place(in_=host, x=int(bx) + 1, y=int(by) + offset, anchor="nw")
+            frame.place(in_=host, x=x, y=y, anchor="nw")
             frame.lift()
             self._place_retries = 0
-            return
         except tk.TclError:
             pass
-        self._grid(frame, row=max(1, self._bottom_row), column=0, columnspan=2, sticky="ew")
 
     def _retry_place(self):
         """The Update row is not measurable yet, so try again shortly."""
-        if self._place_retries >= 20:
+        if self._place_retries >= 15:
+            if self._alive(self._own_frame):
+                self._forget(self._own_frame)
+                self._grid(self._own_frame, row=max(1, self._bottom_row), column=0, columnspan=2, sticky="ew")
             return
         self._place_retries += 1
         root = self.root
         if not self._alive(root):
             return
+        delay = min(300, 50 + self._place_retries * 15)
         try:
-            root.after(80, self._reposition_own)
+            root.after(delay, self._reposition_own)
         except tk.TclError:
             pass
+
+    def _bind_update_reposition(self):
+        """Follow the Update line when another block changes height.
+
+        The Update and Status rows sit below every plugin frame, so a late
+        resize inside a plugin frame (Salty shrinks itself around six seconds
+        in) moves them.  Tk sends <Configure> to the widget that moved, so the
+        Update widget is the reliable trigger for re-placing the Edit button.
+        """
+        block = next((b for b in self.blocks if b.kind == "update"), None)
+        if block is None:
+            return
+        for widget in block.widgets:
+            if not self._alive(widget):
+                continue
+            key = str(widget)
+            if key in self._update_bound:
+                continue
+            try:
+                widget.bind("<Configure>", self._on_update_configure, add="+")
+                self._update_bound.add(key)
+            except tk.TclError:
+                pass
+
+    def _on_update_configure(self, event):
+        if self._in_layout or self._place_job is not None:
+            return
+        root = self.root
+        if not self._alive(root):
+            return
+        try:
+            self._place_job = root.after_idle(self._on_update_settle)
+        except tk.TclError:
+            self._place_job = None
+
+    def _on_update_settle(self):
+        self._place_job = None
+        if self._in_layout or not self._alive(self.host):
+            return
+        self._update_pick = None
+        block = next((b for b in self.blocks if b.kind == "update"), None)
+        if block is not None and self._update_row is not None:
+            for widget in block.widgets:
+                if not self._alive(widget):
+                    continue
+                try:
+                    if widget.winfo_manager() != "grid":
+                        continue
+                    row = int(widget.grid_info().get("row", -1))
+                except (tk.TclError, TypeError, ValueError):
+                    continue
+                if row != int(self._update_row):
+                    # EDMC regrids the Update pair at its original row on every
+                    # theme change (theme.apply), which undoes our compacted
+                    # order and can push the status line off the window.
+                    self.apply_layout()
+                    return
+        self._fix_commander_alignment()
+        self._pick_update_widget()
+        self._place_own_row()
+
+    def _bind_core_alignment(self):
+        """Restore the commander row options when EDMC regrids one of them.
+
+        EDMC reveals the Suit row later, when it learns the suit, and regrids
+        that whole row with its own padding.
+        """
+        block = next((b for b in self.blocks if b.kind == "group"), None)
+        if block is None:
+            return
+        for widget in block.widgets:
+            if not self._widget_name(widget).endswith("_label"):
+                continue
+            if not self._alive(widget):
+                continue
+            key = str(widget)
+            if key in self._core_bound:
+                continue
+            try:
+                widget.bind("<Configure>", self._on_core_label_configure, add="+")
+                self._core_bound.add(key)
+            except tk.TclError:
+                pass
+
+    def _on_core_label_configure(self, event):
+        if self._in_layout or self._place_job is not None:
+            return
+        root = self.root
+        if not self._alive(root):
+            return
+        try:
+            self._place_job = root.after_idle(self._on_core_label_settle)
+        except tk.TclError:
+            self._place_job = None
+
+    def _on_core_label_settle(self):
+        self._place_job = None
+        if self._in_layout or not self._alive(self.host):
+            return
+        self._fix_commander_alignment()
+        self._place_own_row()
 
     def _bind_reposition(self):
         """Follow the Update line when the window is resized."""
@@ -694,7 +913,11 @@ class LayoutEngine:
             pass
 
     def _on_host_configure(self, event):
-        if self._in_layout or self._place_job is not None:
+        # Only reposition if the event is for the host itself, not a child widget
+        if event.widget != self.host:
+            return
+        # Allow repositioning even during layout if we're not actively placing
+        if self._place_job is not None:
             return
         root = self.root
         if not self._alive(root):
@@ -711,6 +934,9 @@ class LayoutEngine:
         if self._sync_core() or self._has_stray_block():
             self.apply_layout()
             return
+        # Always try to re-place the button
+        self._place_retries = 0
+        self._fix_commander_alignment()
         self._place_own_row()
 
     def _has_stray_block(self):
@@ -732,6 +958,19 @@ class LayoutEngine:
         self._place_job = None
         if self._in_layout or not self._alive(self.host):
             return
+        # Re-pick the update widget in case theme changed
+        self._update_pick = None
+        self._pick_update_widget()
+        self._fix_commander_alignment()
+        self._place_own_row()
+
+    def force_reshow_button(self):
+        """Force the Edit layout button to re-appear."""
+        if not self._alive(self._own_frame):
+            return
+        self._update_pick = None
+        self._place_retries = 0
+        self._pick_update_widget()
         self._place_own_row()
 
     def _configure_grid(self, host):
@@ -813,10 +1052,10 @@ class LayoutEngine:
         for label, value in self._iter_pairs(block):
             if label is not None:
                 try:
-                    label.configure(anchor="e")
+                    label.configure(anchor="w")
                 except tk.TclError:
                     pass
-                self._grid(label, row=row, column=column, sticky="e")
+                self._grid(label, row=row, column=column, sticky="w")
                 if self._widget_name(label) == "suit_label":
                     self._suit_row = row
             if value is not None:
@@ -900,11 +1139,11 @@ class LayoutEngine:
         root = self.root
         if not self._alive(root):
             return
-        for delay in (150, 400, 900, 1600, 3000, 6000):
-            try:
-                root.after(delay, self._on_host_settle)
-            except tk.TclError:
-                return
+        # Single callback after everything should be settled
+        try:
+            root.after(600, self._on_host_settle)
+        except tk.TclError:
+            return
 
     def _schedule_resort(self):
         """Re-run once after the first draw so short add-ons can be measured."""
@@ -1002,6 +1241,15 @@ class LayoutEngine:
         except tk.TclError:
             pass
 
+    def _max_title_width(self):
+        """Character width of the longest add-on title, so headers line up."""
+        width = 0
+        for block in self.blocks:
+            length = len(block.title) if block.title else 0
+            if length > width:
+                width = length
+        return max(width, 10)
+
     def _block_chrome(self, block):
         """The title bar and eyeball hide bar for one block, created once.
 
@@ -1046,17 +1294,6 @@ class LayoutEngine:
             activeforeground=colors["text"],
         )
         eye.pack(side="right")
-        hint = tk.Label(
-            header,
-            text="drag onto another block to reorder",
-            anchor="e",
-            padx=6,
-            pady=1,
-            bg=colors["bar"],
-            fg=colors["border"],
-            font=self._hint_font(),
-        )
-        hint.pack(side="right")
         title = tk.Label(
             header,
             text="\u2630  " + block.title,
@@ -1066,24 +1303,16 @@ class LayoutEngine:
             cursor="fleur",
             bg=colors["bar"],
             fg=colors["text"],
+            width=self._max_title_width(),
         )
         title.pack(side="left", fill="both", expand=True)
-        for draggable in (title, hint, header):
+        for draggable in (title, header):
             draggable.bind("<ButtonPress-1>", lambda event, b=block: self._drag_begin(b, event))
             draggable.bind("<B1-Motion>", self._drag_motion)
             draggable.bind("<ButtonRelease-1>", self._drag_end)
         eye.bind("<Button-1>", lambda _event, b=block: self.set_visible(b.key, False))
-        block.chrome = {"header": header, "title": title, "hint": hint, "eye": eye}
+        block.chrome = {"header": header, "title": title, "eye": eye}
         return header
-
-    def _hint_font(self):
-        try:
-            from tkinter import font as tkfont
-            font = tkfont.nametofont("TkDefaultFont").copy()
-            font.configure(size=max(7, int(font.cget("size")) - 1))
-            return font
-        except Exception:
-            return None
 
     def _theme_color(self, name, default=""):
         try:

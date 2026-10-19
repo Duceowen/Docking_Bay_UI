@@ -2,12 +2,13 @@
 
 A small window that opens beside the EDMC main window. It lists the hidden
 add-ons as clickable boxes, and offers Reset to Default and Finished editing.
-Closing the window any way - the Finished editing button or the title-bar X -
+Closing the window any way - the Finished editing button or the close button -
 saves the current layout.
 """
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 
 try:
@@ -17,6 +18,25 @@ except ImportError:
 
 TITLE = "Docking Bay UI - Edit layout"
 GAP = 12
+
+
+def _make_taskbar_visible(window):
+    """Make an overrideredirect window appear in the taskbar on Windows."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        wid = window.winfo_id()
+        hwnd = int(wid, 16) if str(wid).startswith("0x") else int(wid)
+        user32 = ctypes.windll.user32
+        GWL_EXSTYLE = -20
+        WS_EX_APPWINDOW = 0x00040000
+        WS_EX_TOOLWINDOW = 0x00000080
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        style = (style | WS_EX_APPWINDOW) & ~WS_EX_TOOLWINDOW
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+    except Exception:
+        pass
 
 
 def _themed_button(parent, text, background, foreground, **kwargs):
@@ -37,6 +57,9 @@ class LayoutEditor:
         self.window = None
         self._hidden_frame = None
         self._listener = None
+        self._title_bar = None
+        self._drag_x = 0
+        self._drag_y = 0
         engine.editor = self
         self.open()
 
@@ -51,27 +74,71 @@ class LayoutEditor:
 
         window = tk.Toplevel(root)
         self.window = window
-        window.title(TITLE)
-        window.resizable(False, False)
+        window.overrideredirect(True)
         window.protocol("WM_DELETE_WINDOW", self.finish)
         if background:
             window.configure(bg=background)
+        
+        # Make window appear in taskbar despite overrideredirect
+        window.after(10, lambda: _make_taskbar_visible(window))
+        
+        # Custom themed title bar
+        self._title_bar = tk.Frame(window, bg=background or None, relief="flat", bd=0)
+        self._title_bar.pack(fill="x", side="top")
+
+        title_label = tk.Label(
+            self._title_bar,
+            text=TITLE,
+            font=("TkDefaultFont", 10, "bold"),
+            bg=background or None,
+            fg=foreground or None,
+            anchor="w",
+            padx=8,
+            pady=4,
+        )
+        title_label.pack(side="left", fill="x", expand=True)
+
+        close_btn = tk.Label(
+            self._title_bar,
+            text="\u2715",
+            font=("TkDefaultFont", 10, "bold"),
+            bg=background or None,
+            fg=foreground or None,
+            anchor="center",
+            padx=6,
+            pady=4,
+            cursor="hand2",
+        )
+        close_btn.pack(side="right")
+        close_btn.bind("<Button-1>", lambda _e: self.finish())
+
+        for drag_widget in (title_label, self._title_bar):
+            drag_widget.bind("<ButtonPress-1>", self._titlebar_press)
+            drag_widget.bind("<B1-Motion>", self._titlebar_motion)
 
         body = tk.Frame(window, bg=background or None)
-        body.pack(fill="both", expand=True, padx=14, pady=12)
+        body.pack(fill="both", expand=True, padx=14, pady=(4, 12))
 
         tk.Label(
             body,
-            text="Edit layout",
+            text="How to edit",
             font=("TkDefaultFont", 11, "bold"),
             bg=background or None,
             fg=foreground or None,
             anchor="w",
         ).pack(fill="x")
+
+        instructions = (
+            "Each add-on has a coloured title bar with a drag handle and an eye icon.\n"
+            "\u2022  Drag a title bar onto another add-on to swap them.\n"
+            "     The add-on you drag takes that spot; the rest shift down.\n"
+            "\u2022  Click the eye to hide an add-on.\n"
+            "     Hidden add-ons appear below with a Show button."
+        )
         tk.Label(
             body,
-            text="Drag an add-on's title bar onto another add-on to move it there.",
-            wraplength=320,
+            text=instructions,
+            wraplength=360,
             justify="left",
             bg=background or None,
             fg=foreground or None,
@@ -174,6 +241,7 @@ class LayoutEditor:
         """Close the window. Safe to call more than once."""
         window = self.window
         self.window = None
+        self._title_bar = None
         engine = self.engine
         if engine is not None:
             if getattr(engine, "editor", None) is self:
@@ -214,6 +282,25 @@ class LayoutEditor:
             window.geometry(tk_position(x, y))
         except tk.TclError:
             return
+
+    def _titlebar_press(self, event):
+        self._drag_x = event.x_root
+        self._drag_y = event.y_root
+
+    def _titlebar_motion(self, event):
+        window = self.window
+        if window is None:
+            return
+        try:
+            dx = event.x_root - self._drag_x
+            dy = event.y_root - self._drag_y
+            self._drag_x = event.x_root
+            self._drag_y = event.y_root
+            x = window.winfo_x() + dx
+            y = window.winfo_y() + dy
+            window.geometry("+%d+%d" % (x, y))
+        except tk.TclError:
+            pass
 
     def _color(self, name):
         """A theme color, or an empty string when it cannot be read."""
