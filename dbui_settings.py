@@ -30,15 +30,31 @@ def build_settings(parent, engine):
 
     frame = nb.Frame(parent)
     frame.columnconfigure(0, weight=1)
+    frame.rowconfigure(0, weight=1)
+
+    # EDMC sizes the Settings dialog to its tallest tab. Cap this tab and
+    # scroll its content so the dialog's OK button stays on screen.
+    canvas = tk.Canvas(frame, highlightthickness=0, bd=0, relief="flat", width=520)
+    scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+    content = nb.Frame(canvas)
+    content.columnconfigure(0, weight=1)
+    window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+    background = _settings_background()
+    if background:
+        canvas.configure(bg=background)
+    cap = _settings_cap(frame)
     row = 1
 
     intro = (
-        "Docking Bay UI arranges the main window. Click Outfitting on the main window to edit the layout. "
+        "Docking Bay UI arranges the main window. Click Edit layout on the main window to edit the layout. "
         "Cmdr, Ship, Suit, System, and Station are one block named Commander. "
         "Clear a box below to hide an element. A hidden block stays in the list, and Hide on a block does the same thing. "
         "The edit window lists every hidden block with a button to bring it back."
     )
-    nb.Label(frame, text=intro, wraplength=460, justify="left").grid(
+    nb.Label(content, text=intro, wraplength=460, justify="left").grid(
         row=row, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8)
     )
     row += 1
@@ -46,15 +62,15 @@ def build_settings(parent, engine):
     # A plain tk.Frame would paint the gray system button face on the white
     # settings page. Use the notebook frame style EDMC already configured.
     if sys.platform == "win32":
-        buttons = ttk.Frame(frame, style="nb.TFrame")
+        buttons = ttk.Frame(content, style="nb.TFrame")
     else:
-        buttons = ttk.Frame(frame)
+        buttons = ttk.Frame(content)
     buttons.grid(row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
     nb.Button(buttons, text="Rescan", command=engine.rescan).pack(side="left", padx=(0, 6))
     nb.Button(buttons, text="Reset", command=lambda: _reset(engine, frame)).pack(side="left")
     row += 1
 
-    nb.Label(frame, text="Turn elements on or off", anchor="w").grid(
+    nb.Label(content, text="Turn elements on or off", anchor="w").grid(
         row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(8, 2)
     )
     row += 1
@@ -64,7 +80,7 @@ def build_settings(parent, engine):
     checks = []
     blocks = list(engine.blocks)
     if not blocks:
-        nb.Label(frame, text="The main window has not been scanned yet. Press Rescan.").grid(
+        nb.Label(content, text="The main window has not been scanned yet. Press Rescan.").grid(
             row=row, column=0, columnspan=3, sticky="w", padx=8, pady=2
         )
         row += 1
@@ -73,20 +89,20 @@ def build_settings(parent, engine):
         variables.append(variable)
         checks.append((block.key, variable))
         nb.Checkbutton(
-            frame,
+            content,
             text=block.title,
             variable=variable,
             command=lambda key=block.key, var=variable: engine.set_visible(key, bool(var.get())),
         ).grid(row=row, column=0, columnspan=3, sticky="w", padx=24, pady=1)
         row += 1
 
-    nb.Label(frame, text="Appearance", anchor="w").grid(
+    nb.Label(content, text="Appearance", anchor="w").grid(
         row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(12, 2)
     )
     row += 1
 
     nb.Label(
-        frame,
+        content,
         text=(
             "Normal text and Highlighted text recolor the main window. "
             "Pick opens the color chooser. Defaults restores theme orange and white. "
@@ -105,14 +121,14 @@ def build_settings(parent, engine):
     theme_var = _theme_variable(dialog)
     variables.append(theme_var)
     theme_default, theme_dark, theme_transparent = _theme_ids()
-    nb.Label(frame, text="Theme", anchor="w").grid(row=row, column=0, sticky="w", padx=8, pady=(4, 2))
+    nb.Label(content, text="Theme", anchor="w").grid(row=row, column=0, sticky="w", padx=8, pady=(4, 2))
     row += 1
     theme_choices = [("Default", theme_default), ("Dark", theme_dark)]
     if sys.platform == "win32":
         theme_choices.append(("Transparent", theme_transparent))
     for label, value in theme_choices:
         nb.Radiobutton(
-            frame,
+            content,
             text=label,
             variable=theme_var,
             value=value,
@@ -127,11 +143,11 @@ def build_settings(parent, engine):
     color_inputs = []
     labels = ("Normal text", "Highlighted text")
     for index, label in enumerate(labels):
-        nb.Label(frame, text=label, anchor="w").grid(row=row, column=0, sticky="w", padx=8, pady=2)
-        entry = nb.EntryMenu(frame, textvariable=color_vars[index], width=18)
+        nb.Label(content, text=label, anchor="w").grid(row=row, column=0, sticky="w", padx=8, pady=2)
+        entry = nb.EntryMenu(content, textvariable=color_vars[index], width=18)
         entry.grid(row=row, column=1, sticky="w", padx=4, pady=2)
         pick = nb.Button(
-            frame,
+            content,
             text="Pick",
             command=lambda which=index: _pick_appearance(engine, frame, which, color_vars),
         )
@@ -139,9 +155,9 @@ def build_settings(parent, engine):
         color_inputs.extend((entry, pick))
         row += 1
 
-    nb.Label(frame, text="Preview", anchor="w").grid(row=row, column=0, sticky="w", padx=8, pady=(6, 2))
+    nb.Label(content, text="Preview", anchor="w").grid(row=row, column=0, sticky="w", padx=8, pady=(6, 2))
     preview_normal = tk.Button(
-        frame,
+        content,
         text="Station",
         background="grey4",
         activebackground="grey4",
@@ -150,7 +166,7 @@ def build_settings(parent, engine):
     preview_normal.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
     row += 1
     preview_highlight = tk.Button(
-        frame,
+        content,
         text="  Hutton Orbital  ",
         background="grey4",
         activebackground="grey4",
@@ -162,12 +178,12 @@ def build_settings(parent, engine):
     row += 1
 
     nb.Button(
-        frame,
+        content,
         text="Defaults",
         command=lambda: _restore_appearance_defaults(engine, frame, color_vars),
     ).grid(row=row, column=0, sticky="w", padx=8, pady=(4, 8))
     nb.Button(
-        frame,
+        content,
         text="Apply appearance colors",
         command=lambda: _apply_appearance(engine, frame, color_vars),
     ).grid(row=row, column=1, sticky="w", padx=4, pady=(4, 8))
@@ -177,7 +193,7 @@ def build_settings(parent, engine):
         variable.trace_add("write", lambda *_args: _colors_edited(frame))
 
     nb.Label(
-        frame,
+        content,
         text="Window opacity. 100 is solid. The window stays visible enough to change this back.",
         wraplength=460,
         justify="left",
@@ -190,7 +206,7 @@ def build_settings(parent, engine):
     # must not mark the opacity as a commander choice.
     frame._ui_customizer_suppress = True
     scale = ttk.Scale(
-        frame,
+        content,
         from_=15,
         to=100,
         orient="horizontal",
@@ -200,7 +216,7 @@ def build_settings(parent, engine):
     )
     scale.grid(row=row, column=0, sticky="w", padx=8, pady=(0, 8))
     scale.bind("<ButtonRelease-1>", lambda _event: _opacity_released(engine, frame))
-    opacity_value = nb.Label(frame, text="%d%%" % opacity.get(), anchor="w")
+    opacity_value = nb.Label(content, text="%d%%" % opacity.get(), anchor="w")
     opacity_value.grid(row=row, column=1, sticky="w", padx=(4, 8), pady=(0, 8))
     frame._ui_customizer_suppress = False
     row += 1
@@ -225,7 +241,69 @@ def build_settings(parent, engine):
             engine._visibility_listener = None
 
     frame.bind("<Destroy>", _forget_listener, add="+")
+    _finish_scroll(frame, canvas, content, scrollbar, window_id, cap)
     return frame
+
+
+def _settings_background():
+    """The notebook page color, so the canvas does not paint over the theme."""
+    try:
+        style = ttk.Style()
+        return style.lookup("nb.TFrame", "background") or style.lookup("TFrame", "background") or None
+    except tk.TclError:
+        return None
+
+
+def _settings_cap(frame) -> int:
+    """A tab height that leaves room for the dialog's own buttons."""
+    try:
+        screen_height = int(frame.winfo_toplevel().winfo_screenheight())
+    except (tk.TclError, ValueError):
+        screen_height = 1080
+    return max(300, min(600, screen_height - 480))
+
+
+def _finish_scroll(frame, canvas, content, scrollbar, window_id, cap) -> None:
+    """Size the canvas to the content, up to the cap, and wire the scrollbar."""
+    def _resize(event=None):
+        if event is None:
+            content.update_idletasks()
+        width = canvas.winfo_width()
+        if width <= 1:
+            width = max(1, content.winfo_reqwidth())
+        needed = content.winfo_reqheight()
+        height = min(max(needed, 1), cap)
+        if int(canvas.cget("height")) != height:
+            canvas.configure(height=height)
+        canvas.itemconfigure(window_id, width=width)
+        canvas.configure(scrollregion=(0, 0, width, needed))
+        if needed > max(height, canvas.winfo_height()):
+            scrollbar.grid()
+        else:
+            scrollbar.grid_remove()
+            canvas.yview_moveto(0)
+
+    content.update_idletasks()
+    _resize()
+    content.bind("<Configure>", _resize, add="+")
+    canvas.bind("<Configure>", _resize, add="+")
+    _bind_wheel(frame, canvas)
+    frame._ui_customizer_canvas = canvas
+
+
+def _bind_wheel(widget, canvas) -> None:
+    """Scroll this tab when the wheel is used over any of its widgets."""
+    widget.bind("<MouseWheel>", lambda event: _wheel(canvas, event), add="+")
+    widget.bind("<Button-4>", lambda _event: canvas.yview_scroll(-1, "units"), add="+")
+    widget.bind("<Button-5>", lambda _event: canvas.yview_scroll(1, "units"), add="+")
+    for child in widget.winfo_children():
+        _bind_wheel(child, canvas)
+
+
+def _wheel(canvas, event) -> None:
+    delta = int(getattr(event, "delta", 0) or 0)
+    if delta:
+        canvas.yview_scroll(-1 if delta > 0 else 1, "units")
 
 
 def _sync_checks(engine, frame) -> None:
@@ -346,8 +424,6 @@ def _pick_appearance(engine, frame, index: int, color_vars) -> None:
     """Open the color chooser on the Settings window and store the choice.
 
     The chooser is parented to Settings, which already holds the grab.
-    Popup fitting is paused until the chooser closes, so the window does not
-    jump and dismiss it.
     """
     dialog = _appearance_dialog(frame)
     current = clean_color(color_vars[index].get()) or None
@@ -359,13 +435,10 @@ def _pick_appearance(engine, frame, index: int, color_vars) -> None:
         current = clean_color(stored) or current
     title = ("Normal text", "Highlighted text")[index]
     parent = _chooser_parent(frame, dialog)
-    engine.suspend_popup_fit(True)
     try:
         _rgb, chosen = colorchooser.askcolor(color=current or None, parent=parent, title=title)
     except tk.TclError:
         return
-    finally:
-        engine.suspend_popup_fit(False)
     if not chosen:
         return
     colors = [clean_color(color_vars[0].get()), clean_color(color_vars[1].get())]

@@ -71,7 +71,7 @@ OUTFITTING_ICON_PX = 20
 
 
 def _load_outfitting_icon(master, size: int = OUTFITTING_ICON_PX):
-    """Load the small Outfitting icon, or None when it is missing or unreadable."""
+    """Load the small Edit layout icon, or None when it is missing or unreadable."""
     try:
         folder = os.path.dirname(os.path.abspath(__file__))
     except NameError:
@@ -146,11 +146,9 @@ class LayoutEngine:
         self._log = plugin_logger()
         self._visibility_listener = None
         self._suit_row = None
-        self._resort_job = None
         self._drag = None
         self._ghost = None
         self._drop_target = None
-        self._suspend_fit = False
 
     def load(self):
         self.state = self.store.load()
@@ -166,15 +164,9 @@ class LayoutEngine:
             self.save()
         except Exception:
             self._log.exception("Docking Bay UI could not save on shutdown")
-        if self._resort_job is not None:
-            try:
-                self.root.after_cancel(self._resort_job)
-            except Exception:
-                pass
-            self._resort_job = None
 
     def build_app_row(self, parent, on_click=None):
-        """Return the Outfitting button row for EDMC's main window."""
+        """Return the Edit layout button row for EDMC's main window."""
         try:
             self.host = parent.master
             self.root = parent.winfo_toplevel()
@@ -321,16 +313,6 @@ class LayoutEngine:
         self._snap_to_content()
         self._schedule_settle()
 
-    def close_editor(self):
-        editor = self.editor
-        self.editor = None
-        if editor is not None:
-            try:
-                editor.close()
-            except Exception:
-                pass
-        self.set_editing(False)
-
     # -- appearance and opacity ------------------------------------------
 
     def appearance_color(self, index):
@@ -403,10 +385,6 @@ class LayoutEngine:
         self._update_pick = None
         self._place_retries = 0
         self._place_own_row()
-
-    def suspend_popup_fit(self, flag):
-        """Pause popup fitting while a color chooser owns the pointer."""
-        self._suspend_fit = bool(flag)
 
     def set_opacity(self, value, preview=True, save=False):
         """Set the main window opacity (15-100) and mirror EDMC's own setting."""
@@ -501,10 +479,6 @@ class LayoutEngine:
                 self._visibility_listener()
             except Exception:
                 pass
-
-    def toggle_hidden(self, key):
-        hidden = set(self.state.get("hidden") or [])
-        self.set_visible(key, key in hidden)
 
     def hidden_keys(self):
         return list(self.state.get("hidden") or [])
@@ -964,15 +938,6 @@ class LayoutEngine:
         self._fix_commander_alignment()
         self._place_own_row()
 
-    def force_reshow_button(self):
-        """Force the Edit layout button to re-appear."""
-        if not self._alive(self._own_frame):
-            return
-        self._update_pick = None
-        self._place_retries = 0
-        self._pick_update_widget()
-        self._place_own_row()
-
     def _configure_grid(self, host):
         """Content grows sideways only. Rows keep their natural height."""
         try:
@@ -1145,25 +1110,6 @@ class LayoutEngine:
         except tk.TclError:
             return
 
-    def _schedule_resort(self):
-        """Re-run once after the first draw so short add-ons can be measured."""
-        root = self.root
-        if not self._alive(root) or self._resort_job is not None:
-            return
-        try:
-            self._resort_job = root.after(400, self._resort)
-        except tk.TclError:
-            self._resort_job = None
-
-    def _resort(self):
-        self._resort_job = None
-        if self._in_layout or not self._alive(self.host):
-            return
-        try:
-            self._apply_layout()
-        except Exception:
-            self._log.exception("Docking Bay UI could not settle the layout")
-
     def _hide_dividers(self):
         """Hide the green EDMC separator lines between plugin blocks."""
         host = self.host
@@ -1178,11 +1124,6 @@ class LayoutEngine:
                 self._forget(child)
 
     # -- widget helpers --------------------------------------------------
-
-    def _pair(self, block):
-        label = block.widgets[0] if block.widgets else None
-        value = block.widgets[1] if len(block.widgets) > 1 else None
-        return label, value
 
     def _iter_pairs(self, block):
         by_name = {}

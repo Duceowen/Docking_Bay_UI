@@ -8,7 +8,7 @@ Install it, then restart EDMC once so the plugin loads. After that the main wind
 
 **Edit layout** turns on edit mode and opens the editor window beside the main window, in open space, without covering the main window. The editor lists any **Hidden addons** with a **Show** button for each, then **Reset to Default** and **Finished editing**. Closing the editor's X does the same as **Finished editing**: the layout is saved and edit mode turns off.
 
-In edit mode only, every block gets a contrasting title bar with a drag grip, a "drag onto another block to reorder" hint, and a hide control (the eye) on its right. Outside edit mode the main window looks like a normal EDMC window: no title bars, no eyes. The window grows to fit the bars while editing and shrinks back when you finish.
+In edit mode only, every block gets a contrasting title bar with a drag grip and a hide control (the eye) on its right. Outside edit mode the main window looks like a normal EDMC window: no title bars, no eyes. The window grows to fit the bars while editing and shrinks back when you finish.
 
 ## Rearrange the window
 
@@ -34,13 +34,14 @@ Hiding puts the widget back the way EDMC built it, and showing it returns it to 
 
 **Reset** on this tab restores the stock order, shows every block, and puts back the opacity EDMC was using when the plugin first started. It leaves the Appearance colors alone.
 
+The tab scrolls when the Settings window is too short to show it all, so the dialog's **OK** button stays on screen.
+
 ## What the plugin protects
 
 - The window never narrows below the width EDMC needed at startup, so hiding add-ons cannot clip the info line. Blocks grow horizontally but not vertically.
 - The green separators EDMC draws between plugins stay hidden.
 - Core widgets (commander, ship, suit, system, station, Update, status) are never moved to a new parent. Only their grid cell changes, so other plugins and the theme keep working.
 - The menu stays on the top row, so the window keeps its title bar and close button.
-- Some plugins open their own popup window. Docking Bay UI keeps that window on the visible work area, without the correction repeating and walking the window across the screen.
 
 ## Notes
 

@@ -1,3 +1,3 @@
 """Plugin version. EDMC reads __version__ from the loaded module."""
 
-__version__ = "1.3.20"
+__version__ = "1.3.21"

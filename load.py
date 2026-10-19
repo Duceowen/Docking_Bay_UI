@@ -12,14 +12,12 @@ try:
     from .dbui_editor import LayoutEditor
     from .dbui_engine import LayoutEngine, plugin_logger
     from .dbui_settings import build_settings
-    from .dbui_version import __version__
+    from .dbui_version import __version__ as __version__
 except ImportError:
     from dbui_editor import LayoutEditor
     from dbui_engine import LayoutEngine, plugin_logger
     from dbui_settings import build_settings
-    from dbui_version import __version__
-
-__version__ = __version__
+    from dbui_version import __version__ as __version__
 
 ENGINE = None
 EDITOR = None
@@ -52,14 +50,15 @@ def _open_edit(parent):
     """Open the edit window."""
     global EDITOR
     if EDITOR is not None:
-        try:
-            EDITOR.window.lift()
-        except tk.TclError:
-            EDITOR = None
-        if EDITOR is None:
-            LayoutEditor(ENGINE)
-    else:
-        LayoutEditor(ENGINE)
+        window = getattr(EDITOR, "window", None)
+        if window is not None:
+            try:
+                window.lift()
+                return
+            except tk.TclError:
+                pass
+        EDITOR = None
+    EDITOR = LayoutEditor(ENGINE)
 
 
 def plugin_prefs(parent, cmdr, is_beta):

@@ -78,10 +78,10 @@ class LayoutEditor:
         window.protocol("WM_DELETE_WINDOW", self.finish)
         if background:
             window.configure(bg=background)
-        
+
         # Make window appear in taskbar despite overrideredirect
         window.after(10, lambda: _make_taskbar_visible(window))
-        
+
         # Custom themed title bar
         self._title_bar = tk.Frame(window, bg=background or None, relief="flat", bd=0)
         self._title_bar.pack(fill="x", side="top")
@@ -158,8 +158,12 @@ class LayoutEditor:
 
         buttons = tk.Frame(body, bg=background or None)
         buttons.pack(fill="x", pady=(6, 0))
-        _themed_button(buttons, "Reset to Default", background, foreground, width=16, command=self._reset).pack(side="left")
-        _themed_button(buttons, "Finished editing", background, foreground, width=16, command=self.finish).pack(side="right")
+        _themed_button(
+            buttons, "Reset to Default", background, foreground, width=16, command=self._reset
+        ).pack(side="left")
+        _themed_button(
+            buttons, "Finished editing", background, foreground, width=16, command=self.finish
+        ).pack(side="right")
 
         self.refresh_hidden()
         if engine is not None:
