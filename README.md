@@ -1,3 +1,4 @@
+<img width="904" height="990" alt="Screenshot 2026-10-19 211914" src="https://github.com/user-attachments/assets/2721049f-79dd-498c-abb4-3f830a7fe667" />
 # Docking Bay UI
 
 Docking Bay UI is an EDMC plugin. It rearranges the blocks in EDMC's main window, hides blocks you do not want, and controls the window's text colors and opacity. Layout, visibility, colors, and opacity are saved and come back the next time EDMC starts.
