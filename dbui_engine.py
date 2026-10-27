@@ -184,8 +184,8 @@ class LayoutEngine:
         button = tk.Label(
             row,
             text="Edit layout",
-            anchor="center",
-            padx=6,
+            anchor="w",
+            padx=2,
             pady=1,
             cursor="hand2",
             compound="left",
@@ -199,7 +199,7 @@ class LayoutEngine:
             button.configure(fg=foreground)
         if on_click is not None:
             button.bind("<Button-1>", lambda _event: on_click())
-        button.grid(row=0, column=0, padx=(4, 8), pady=0, sticky="w")
+        button.pack(side="left")
 
         self._app_row = row
         self._prealign_labels()
@@ -645,7 +645,13 @@ class LayoutEngine:
         for block in self.blocks:
             self._forget_block(block)
 
-        self._configure_grid(host)
+        try:
+            host.grid_columnconfigure(0, weight=0)
+            host.grid_columnconfigure(1, weight=1)
+            for number in range(0, MAX_SLOT + 2):
+                host.grid_rowconfigure(number, weight=0)
+        except tk.TclError:
+            pass
 
         row = 1
         self._update_row = None
@@ -727,19 +733,28 @@ class LayoutEngine:
             self._grid(frame, row=max(1, self._bottom_row), column=0, columnspan=2, sticky="ew")
             return
 
+        self._forget(frame)
         try:
-            host.update_idletasks()
-            bx, by, _bw, bh = host.bbox(0, row)
-        except Exception:
-            return
-        if int(bh) <= 0:
-            self._retry_place()
-            return
-
+            self._grid(frame, row=row, column=0, sticky="w")
+            self._place_retries = 0
+        except tk.TclError:
+            pass
+        return
+        if theme == 0:
+            x = int(bx) + 12
+        else:
+            x = int(bx) + _PADX
+        y = int(by) + offset
+        if y > int(by) + int(bh) - height:
+            y = int(by) + int(bh) - height
+        if y < int(by):
+            y = int(by)
+        self._forget(frame)
         try:
-            host.update_idletasks()
-            bx, by, _bw, bh = host.bbox(0, row)
-        except Exception:
+            self._grid(frame, row=row, column=0, sticky="w")
+            self._place_retries = 0
+        except tk.TclError:
+            pass
             return
         if int(bh) <= 0:
             self._retry_place()
@@ -754,15 +769,11 @@ class LayoutEngine:
             y = int(by)
         self._forget(frame)
         try:
-            self._grid(frame, row=row, column=0, sticky="w")
+            frame.place(in_=host, x=x, y=y, anchor="nw")
+            frame.lift()
             self._place_retries = 0
         except tk.TclError:
-            try:
-                frame.place(in_=host, x=x, y=y, anchor="nw")
-                frame.lift()
-                self._place_retries = 0
-            except tk.TclError:
-                pass
+            pass
 
     def _retry_place(self):
         """The Update row is not measurable yet, so try again shortly."""
@@ -1046,10 +1057,11 @@ class LayoutEngine:
                     self._grid(
                         widget,
                         row=row,
-                        column=column,
-                        columnspan=columnspan,
+                        column=column + 1,
+                        columnspan=1,
                         rowspan=rowspan,
-                        sticky="ew",
+                        sticky="w",
+                        padx=(8, 0),
                     )
                     placed = True
                 else:
