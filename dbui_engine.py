@@ -185,7 +185,7 @@ class LayoutEngine:
             row,
             text="Edit layout",
             anchor="center",
-            padx=4,
+            padx=6,
             pady=1,
             cursor="hand2",
             compound="left",
@@ -199,7 +199,7 @@ class LayoutEngine:
             button.configure(fg=foreground)
         if on_click is not None:
             button.bind("<Button-1>", lambda _event: on_click())
-        button.grid(row=0, column=0, padx=(0, 8), pady=0, sticky="w")
+        button.grid(row=0, column=0, padx=(4, 8), pady=0, sticky="w")
 
         self._app_row = row
         self._prealign_labels()
@@ -733,27 +733,36 @@ class LayoutEngine:
         except Exception:
             return
         if int(bh) <= 0:
-            # Not measurable yet; try again once the row has a size.
             self._retry_place()
             return
 
+        try:
+            host.update_idletasks()
+            bx, by, _bw, bh = host.bbox(0, row)
+        except Exception:
+            return
+        if int(bh) <= 0:
+            self._retry_place()
+            return
         height = int(frame.winfo_reqheight())
         offset = max(0, (int(bh) - height) // 2)
-        x = int(bx) + _PADX
+        x = int(bx) + 2
         y = int(by) + offset
-        # Never let the button hang below its row or above the row's top.
         if y > int(by) + int(bh) - height:
             y = int(by) + int(bh) - height
         if y < int(by):
             y = int(by)
-
         self._forget(frame)
         try:
-            frame.place(in_=host, x=x, y=y, anchor="nw")
-            frame.lift()
+            self._grid(frame, row=row, column=0, sticky="w")
             self._place_retries = 0
         except tk.TclError:
-            pass
+            try:
+                frame.place(in_=host, x=x, y=y, anchor="nw")
+                frame.lift()
+                self._place_retries = 0
+            except tk.TclError:
+                pass
 
     def _retry_place(self):
         """The Update row is not measurable yet, so try again shortly."""
