@@ -1077,7 +1077,7 @@ class LayoutEngine:
         if block.kind == "plugin":
             separator, frame = self._plugin_widgets(block)
             self._forget(separator)
-            if frame is not None and not self._frame_has_content(frame):
+            if frame is not None and not self._editing and not self._frame_has_content(frame):
                 self._forget(frame)
                 return row
             header = self._block_chrome(block)
