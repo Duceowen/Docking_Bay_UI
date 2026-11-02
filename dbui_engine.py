@@ -669,6 +669,7 @@ class LayoutEngine:
         self._ensure_min_size()
         # Force commander labels to align properly
         self._fix_commander_alignment()
+        self._schedule_content_watch()
 
     def _fix_commander_alignment(self):
         """Keep the commander labels left-aligned with one value column.
@@ -1012,6 +1013,60 @@ class LayoutEngine:
             return False
         return 1 < height <= SHORT_BLOCK_HEIGHT
 
+    def _frame_has_content(self, frame):
+        """True when a plugin's frame shows something. A plugin that hides its own
+        content with grid_remove leaves an empty box behind, which we skip."""
+        for child in frame.winfo_children():
+            try:
+                if child.winfo_manager() == "":
+                    continue
+                if child.winfo_reqheight() > 2 and child.winfo_reqwidth() > 2:
+                    return True
+            except tk.TclError:
+                continue
+            if self._frame_has_content(child):
+                return True
+        return False
+
+    def _content_signature(self):
+        signature = []
+        for block in self.blocks:
+            if block.kind != "plugin":
+                continue
+            _separator, frame = self._plugin_widgets(block)
+            shown = bool(frame is not None and self._alive(frame) and self._frame_has_content(frame))
+            signature.append((block.key, shown))
+        return tuple(signature)
+
+    def _schedule_content_watch(self, rebase=True):
+        """Check plugin blocks once a second. Re-lay out only after a change holds
+        for two checks, so a burst of hide steps becomes one layout."""
+        root = self.root
+        if getattr(self, "_content_job", None) or not self._alive(root):
+            return
+        if rebase or getattr(self, "_content_sig", None) is None:
+            self._content_sig = self._content_signature()
+
+        def tick():
+            self._content_job = None
+            if not self._alive(root):
+                return
+            current = self._content_signature()
+            if current == self._content_sig:
+                self._content_pending = None
+                self._schedule_content_watch(rebase=False)
+            elif current == getattr(self, "_content_pending", None):
+                self._content_pending = None
+                self._apply_layout()
+            else:
+                self._content_pending = current
+                self._schedule_content_watch(rebase=False)
+
+        try:
+            self._content_job = root.after(1000, tick)
+        except tk.TclError:
+            self._content_job = None
+
     def _place_block(self, block, row):
         if block.kind == "group":
             header = self._block_chrome(block)
@@ -1022,6 +1077,9 @@ class LayoutEngine:
         if block.kind == "plugin":
             separator, frame = self._plugin_widgets(block)
             self._forget(separator)
+            if frame is not None and not self._frame_has_content(frame):
+                self._forget(frame)
+                return row
             header = self._block_chrome(block)
             if header is not None:
                 self._grid(header, row=row, column=0, columnspan=2, sticky="ew")
