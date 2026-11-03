@@ -56,6 +56,9 @@ _PAIR_ROWS = (
     ("station", "Station", "station_label", "station"),
 )
 _PADX = 5
+# Plugin section open/close slide: about 8 steps at 18 ms, roughly 140 ms.
+_FRAME_ANIM_STEPS = 8
+_FRAME_ANIM_MS = 18
 
 # A plugin frame no taller than this is one text line: it sorts to the
 # bottom of the add-on list, alphabetically.
@@ -1067,6 +1070,76 @@ class LayoutEngine:
         except tk.TclError:
             self._content_job = None
 
+    def _collapse_frame(self, frame):
+        """Slide an empty plugin frame closed to a 1px sliver."""
+        self._slide_frame(frame, "closed")
+
+    def _expand_frame(self, frame):
+        """Slide a plugin frame open to its natural height."""
+        self._slide_frame(frame, "open")
+
+    def _set_propagate(self, frame, flag):
+        """Let a frame size itself from its children (True) or hold its height (False).
+
+        Plugins may lay out with grid or pack, so both managers are switched.
+        """
+        frame.grid_propagate(flag)
+        frame.pack_propagate(flag)
+    def _slide_frame(self, frame, target):
+        """Animate a plugin frame between its natural height and a 1px sliver.
+
+        Layouts run this on every pass, so it does nothing when the frame is
+        already heading to the target. A reversal mid-slide restarts from the
+        current height, so the frame never jumps.
+        """
+        if not self._alive(frame):
+            return
+        targets = self.__dict__.setdefault("_frame_targets", {})
+        jobs = self.__dict__.setdefault("_frame_jobs", {})
+        if targets.get(frame) == target:
+            return
+        targets[frame] = target
+        old = jobs.pop(frame, None)
+        if old is not None:
+            try:
+                self.root.after_cancel(old)
+            except tk.TclError:
+                pass
+        try:
+            start = max(1, int(frame.winfo_height())) if frame.winfo_ismapped() else 1
+            if target == "open":
+                self._set_propagate(frame, True)
+                frame.configure(height=0)
+                self.root.update_idletasks()  # Tk recomputes the requested size when idle\r
+                end = max(1, int(frame.winfo_reqheight()))
+            else:
+                end = 1
+            self._set_propagate(frame, False)
+            frame.configure(height=start)
+        except tk.TclError:
+            return
+
+        def step(i):
+            jobs.pop(frame, None)
+            if not self._alive(frame):
+                return
+            try:
+                if i >= _FRAME_ANIM_STEPS:
+                    if target == "open":
+                        self._set_propagate(frame, True)
+                        frame.configure(height=0)
+                    else:
+                        frame.configure(height=1)
+                    return
+                t = i / _FRAME_ANIM_STEPS
+                eased = 1 - (1 - t) ** 2  # ease-out: quick start, soft landing
+                frame.configure(height=max(1, round(start + (end - start) * eased)))
+                jobs[frame] = self.root.after(_FRAME_ANIM_MS, step, i + 1)
+            except tk.TclError:
+                return
+
+        step(1)
+
     def _place_block(self, block, row):
         if block.kind == "group":
             header = self._block_chrome(block)
@@ -1078,8 +1151,15 @@ class LayoutEngine:
             separator, frame = self._plugin_widgets(block)
             self._forget(separator)
             if frame is not None and not self._editing and not self._frame_has_content(frame):
-                self._forget(frame)
-                return row
+                # Keep the frame gridded and collapse it instead of removing it.
+                # A plugin that fills its own frame later calls grid() on it, and
+                # a removed frame would reappear at the bottom of the host.
+                if self._alive(frame):
+                    self._collapse_frame(frame)
+                    self._grid(frame, row=row, column=0, columnspan=2, sticky="ew", pady=0)
+                    return row + 1
+            if frame is not None:
+                self._expand_frame(frame)
             header = self._block_chrome(block)
             if header is not None:
                 self._grid(header, row=row, column=0, columnspan=2, sticky="ew")
