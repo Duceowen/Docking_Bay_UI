@@ -3,6 +3,17 @@
 
 Docking Bay UI is an EDMC plugin. It rearranges the blocks in EDMC's main window, hides blocks you do not want, and controls the window's text colors and opacity. Layout, visibility, colors, and opacity are saved and come back the next time EDMC starts.
 
+## Download
+
+**[Download Docking Bay UI 1.4.2](https://github.com/Duceowen/Docking_Bay_UI/releases/download/1.4.2/Docking_Bay_UI.zip)** (zip) - [all releases](https://github.com/Duceowen/Docking_Bay_UI/releases)
+
+1. Download the zip and unzip it
+2. Copy the `Docking_Bay_UI` folder into your EDMC `plugins` directory:
+   - Windows: `%LOCALAPPDATA%\EDMarketConnector\plugins`
+   - Mac: `~/Library/Application Support/EDMarketConnector/plugins`
+   - Linux: `$XDG_DATA_HOME/EDMarketConnector/plugins` (or `~/.local/share/EDMarketConnector/plugins`)
+3. Restart EDMC
+
 Install it, then restart EDMC once so the plugin loads. After that the main window shows an **Edit layout** button on the Update line, at the left, and File > Settings has a **Docking Bay UI** tab. The Edit layout button uses `outfitting.png` next to the plugin files.
 
 ## Edit layout
