@@ -1054,6 +1054,11 @@ class LayoutEngine:
             self._content_job = None
             if not self._alive(root):
                 return
+            if not self._is_mapped(root):
+                # Window minimized or withdrawn: nothing is visible, so skip the
+                # widget-tree walk and check again on the next tick.
+                self._schedule_content_watch(rebase=False)
+                return
             current = self._content_signature()
             if current == self._content_sig:
                 self._content_pending = None
